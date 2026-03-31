@@ -1,16 +1,4 @@
-"""
-Real-Time Facial Emotion -> Leucocyte Matching Pipeline
-=======================================================
-Captures webcam feed, detects faces, classifies emotion (Happy/Sad/Angry/Neutral),
-and displays a corresponding medical image on a split-screen OpenCV UI.
 
-Dependencies:
-    pip install opencv-python fer tensorflow numpy
-
-Usage:
-    python emotion_leucocyte_pipeline.py
-    Press 'q' or ESC to quit.
-"""
 import cv2
 import numpy as np
 import os
@@ -21,21 +9,11 @@ from fer.fer import FER
 
 
 class EmotionLeucocytePipeline:
-    """
-    Split-screen pipeline:
-        LEFT  (640x720) - leucocyte image matched to current emotion
-        RIGHT (640x720) - live webcam feed with face bbox + emotion label
-    """
-
-    # -- class-level constants -------------------------------------------
     CANVAS_W, CANVAS_H = 1280, 720
-    HALF_W = CANVAS_W // 2                          # 640
+    HALF_W = CANVAS_W // 2                         
 
-    # Analysis runs in a background thread; this controls how often the
-    # main loop submits a new frame to that thread.
     SUBMIT_EVERY_N_FRAMES = 3
 
-    # Recency-weighted vote window (larger = smoother, slower to react)
     EMOTION_BUFFER_SIZE = 12
 
     EMOTION_MAP = {
@@ -45,8 +23,6 @@ class EmotionLeucocytePipeline:
         "neutral": "leucocyte_4.jpg",
     }
 
-    # FER outputs 7 raw emotions. Blend related categories into our 4
-    # targets - captures facial muscle overlap (e.g. sad <-> disgust/fear).
     SCORE_BLEND: dict[str, dict[str, float]] = {
         "happy":   {"happy": 1.0, "surprise": 0.20},
         "sad":     {"sad": 1.0,   "disgust": 0.35, "fear": 0.15},
@@ -54,8 +30,6 @@ class EmotionLeucocytePipeline:
         "neutral": {"neutral": 1.0},
     }
 
-    # Calibration multipliers: compensate FER2013 dataset bias.
-    # "neutral" is systematically over-predicted; "sad" under-predicted.
     SCORE_CALIBRATION: dict[str, float] = {
         "happy":   1.0,
         "sad":     1.6,
@@ -63,8 +37,6 @@ class EmotionLeucocytePipeline:
         "neutral": 0.75,
     }
 
-    # Per-emotion minimum confidence. Sad is a subtle expression ->
-    # lower threshold so it isn't swallowed by neutral.
     MIN_CONFIDENCE_PER_EMOTION: dict[str, float] = {
         "happy":   0.35,
         "sad":     0.18,
@@ -72,18 +44,14 @@ class EmotionLeucocytePipeline:
         "neutral": 0.20,
     }
 
-    # Minimum face size (px) to run ROI ensemble; smaller faces are
-    # too blurry to benefit from the extra pass.
     MIN_FACE_PX = 60
 
-    # colours (BGR)
     BBOX_COLOR   = (0, 255, 128)
     LABEL_BG     = (30, 30, 30)
     LABEL_FG     = (255, 255, 255)
     PANEL_BG     = (20, 20, 20)
     DIVIDER_CLR  = (80, 80, 80)
 
-    # -- init ------------------------------------------------------------
     def __init__(self, image_dir: str = "images"):
         self.image_dir = image_dir
         self.detector = FER(mtcnn=True)
@@ -92,7 +60,6 @@ class EmotionLeucocytePipeline:
         self.frame_counter: int = 0
         self._image_cache: dict[str, np.ndarray] = {}
 
-        # background analysis state
         self._running = False
         self._pending_frame = None
         self._frame_lock = threading.Lock()
@@ -106,10 +73,8 @@ class EmotionLeucocytePipeline:
         print(f"[INIT] Smoothing buffer  : {self.EMOTION_BUFFER_SIZE} frames")
         print(f"[INIT] Min confidence    : {self.MIN_CONFIDENCE_PER_EMOTION}")
 
-    # -- letterbox -------------------------------------------------------
     @staticmethod
     def _letterbox(frame: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
-        """Scale frame to fit target dimensions while preserving aspect ratio."""
         h, w = frame.shape[:2]
         scale = min(target_w / w, target_h / h)
         new_w, new_h = int(w * scale), int(h * scale)
@@ -120,18 +85,8 @@ class EmotionLeucocytePipeline:
         canvas[y_off:y_off + new_h, x_off:x_off + new_w] = resized
         return canvas
 
-    # -- medical-image loader --------------------------------------------
     def get_medical_image(self, emotion_label: str) -> np.ndarray:
-        """
-        Return a 640x720 BGR image matching the detected emotion.
-
-        Expected filenames
-        ------------------
-        images/leucocyte_1.jpg   <- happy
-        images/leucocyte_2.jpg   <- sad
-        images/leucocyte_3.jpg   <- angry
-        images/leucocyte_4.jpg   <- neutral
-        """
+    
         emotion_label = emotion_label.lower()
         filename = self.EMOTION_MAP.get(emotion_label, "leucocyte_4.jpg")
 
@@ -148,33 +103,8 @@ class EmotionLeucocytePipeline:
             else:
                 print(f"[WARN] Could not decode {filepath}")
 
-        # placeholder: dark panel with centred emotion text
-        placeholder = np.zeros((self.CANVAS_H, self.HALF_W, 3), dtype=np.uint8)
-        placeholder[:] = self.PANEL_BG
-
-        label = emotion_label.upper()
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 1.6, 2)
-        cx = (self.HALF_W - tw) // 2
-        cy = (self.CANVAS_H // 2) - 20
-        cv2.putText(placeholder, label, (cx, cy),
-                    cv2.FONT_HERSHEY_DUPLEX, 1.6, (100, 200, 100), 2, cv2.LINE_AA)
-
-        hint = f"[{filename}]"
-        (hw, _hh), _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.putText(placeholder, hint, ((self.HALF_W - hw) // 2, cy + 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (120, 120, 120), 1, cv2.LINE_AA)
-
-        cv2.rectangle(placeholder, (15, 15),
-                      (self.HALF_W - 16, self.CANVAS_H - 16),
-                      (60, 60, 60), 1)
-        return placeholder
-
-    # -- score processing helpers ----------------------------------------
     def _blend_and_calibrate(self, raw: dict) -> dict:
-        """
-        Collapse FER's 7 raw scores into our 4 target emotions via
-        SCORE_BLEND, then apply per-emotion calibration multipliers.
-        """
+    
         blended = {}
         for emotion, sources in self.SCORE_BLEND.items():
             blended[emotion] = sum(raw.get(src, 0.0) * w
@@ -191,10 +121,7 @@ class EmotionLeucocytePipeline:
         return cv2.cvtColor(cv2.merge([l_ch, a_ch, b_ch]), cv2.COLOR_LAB2BGR)
 
     def _analyse_frame(self, frame: np.ndarray, clahe):
-        """
-        Run FER on one (enhanced) frame.  Returns (blended_scores, best_detection)
-        or (None, None) if no face is found.
-        """
+    
         enhanced = self._apply_clahe(frame, clahe)
         results  = self.detector.detect_emotions(enhanced)
         if not results:
@@ -203,10 +130,7 @@ class EmotionLeucocytePipeline:
         return self._blend_and_calibrate(best["emotions"]), best
 
     def _weighted_vote(self, buffer: list) -> str:
-        """
-        Exponentially-weighted majority vote: the most recent entry carries
-        the most weight so the display reacts quickly while still smoothing.
-        """
+  
         weights: dict = {}
         decay = 0.85
         for i, emotion in enumerate(reversed(buffer)):
@@ -214,13 +138,9 @@ class EmotionLeucocytePipeline:
             weights[emotion] = weights.get(emotion, 0.0) + w
         return max(weights, key=weights.__getitem__)
 
-    # -- background analysis thread --------------------------------------
+
     def _analysis_worker(self):
-        """
-        Runs in a daemon thread. Waits for frames submitted by the main loop,
-        runs FER (with optional face-ROI ensemble pass), applies blending,
-        calibration, and recency-weighted temporal smoothing, then posts result.
-        """
+    
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
         while self._running:
@@ -235,14 +155,12 @@ class EmotionLeucocytePipeline:
             if frame is None:
                 continue
 
-            # pass 1: whole-frame analysis
             scores, best = self._analyse_frame(frame, clahe)
             if scores is None:
                 with self._result_lock:
                     self._result = (self.current_emotion, None)
                 continue
 
-            # pass 2: face-ROI ensemble (upscaled crop)
             x, y, w, h = best["box"]
             if w >= self.MIN_FACE_PX and h >= self.MIN_FACE_PX:
                 pad    = int(0.15 * max(w, h))
@@ -261,12 +179,10 @@ class EmotionLeucocytePipeline:
                     scores = {e: (scores[e] + roi_scores[e]) / 2.0
                               for e in scores}
 
-            # pick top emotion with per-emotion threshold
             top_emotion = max(scores, key=scores.get)
             if scores[top_emotion] < self.MIN_CONFIDENCE_PER_EMOTION[top_emotion]:
                 top_emotion = "neutral"
 
-            # recency-weighted temporal smoothing
             self._emotion_buffer.append(top_emotion)
             if len(self._emotion_buffer) > self.EMOTION_BUFFER_SIZE:
                 self._emotion_buffer.pop(0)
@@ -275,10 +191,9 @@ class EmotionLeucocytePipeline:
             with self._result_lock:
                 self._result = (smoothed, best)
 
-    # -- draw helpers ----------------------------------------------------
     @staticmethod
     def _draw_bbox(frame, box, emotion, confidence):
-        """Draw face bounding box + label on the RIGHT panel frame."""
+
         x, y, w, h = box
         cv2.rectangle(frame, (x, y), (x + w, y + h),
                       EmotionLeucocytePipeline.BBOX_COLOR, 2)
@@ -300,9 +215,8 @@ class EmotionLeucocytePipeline:
         cv2.putText(frame, f"FPS: {fps:.1f}", (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 200, 255), 2, cv2.LINE_AA)
 
-    # -- main loop -------------------------------------------------------
     def run(self):
-        """Open the webcam and enter the main display loop. Press 'q'/ESC to exit."""
+        
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open webcam (index 0).")
@@ -383,15 +297,12 @@ class EmotionLeucocytePipeline:
             self._frame_ready.set()
             self._cleanup()
 
-    # -- cleanup ---------------------------------------------------------
     def _cleanup(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()
         cv2.destroyAllWindows()
         print("[EXIT] Resources released. Goodbye.")
 
-
-# -- entry point ---------------------------------------------------------
 if __name__ == "__main__":
     pipeline = EmotionLeucocytePipeline(image_dir="Images")
     pipeline.run()
