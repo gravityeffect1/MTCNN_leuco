@@ -9,7 +9,6 @@
 
 This pipeline captures a live webcam feed, classifies the viewer's facial emotion into one of four affective states (Happy · Sad · Angry · Neutral), and immediately displays a corresponding leucocyte (white blood cell) microscopy image on the left half of a split-screen window.
 
-The project sits at the intersection of **affective computing** and **psychoneuroimmunology**: the well-documented finding that emotional states modulate neuroendocrine signals (e.g., cortisol, catecholamines) which in turn alter leucocyte trafficking, morphology, and activity.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -30,7 +29,6 @@ The project sits at the intersection of **affective computing** and **psychoneur
 | Angry / Stress | ↑ Catecholamines, cortisol | Transient leukocytosis, neutrophilia |
 | Neutral | Baseline HPA tone | Reference leucocyte morphology |
 
-> See the companion notebook (`notebooks/emotion_leucocyte_explained.ipynb`) for a full walkthrough of the biology and the engineering.
 
 ---
 
@@ -38,17 +36,15 @@ The project sits at the intersection of **affective computing** and **psychoneur
 
 ```
 emotion-leucocyte-pipeline/
-├── emotion_leucocyte_pipeline.py   # Main pipeline (run this)
+├── emotion_leucocyte_pipeline.py   
 ├── requirements.txt
 ├── .gitignore
-├── images/                         # Leucocyte microscopy images (add yours here)
-│   ├── leucocyte_1.jpg             # → shown for HAPPY
-│   ├── leucocyte_2.jpg             # → shown for SAD
-│   ├── leucocyte_3.jpg             # → shown for ANGRY
-│   └── leucocyte_4.jpg             # → shown for NEUTRAL
-│   └── generate_placeholders.py    # Generates colored placeholder images for demo
-└── notebooks/
-    └── emotion_leucocyte_explained.ipynb
+├── images/                       
+│   ├── leucocyte_1.jpg             
+│   ├── leucocyte_2.jpg             
+│   ├── leucocyte_3.jpg            
+│   └── leucocyte_4.jpg             
+└────────    
 ```
 
 ---
@@ -63,24 +59,8 @@ cd emotion-leucocyte-pipeline
 pip install -r requirements.txt
 ```
 
-### 2. Add leucocyte images
 
-Place **four** leucocyte microscopy images (`.jpg` or `.png`) in the `images/` folder:
-
-| Filename | Emotion displayed |
-|----------|-----------------|
-| `leucocyte_1.jpg` | Happy |
-| `leucocyte_2.jpg` | Sad |
-| `leucocyte_3.jpg` | Angry |
-| `leucocyte_4.jpg` | Neutral |
-
-> **Don't have images yet?** Run the placeholder generator to test the pipeline:
-> ```bash
-> python images/generate_placeholders.py
-> ```
-> This creates four color-coded placeholder tiles so the pipeline runs immediately.
-
-### 3. Run the pipeline
+### 2. Run the pipeline
 
 ```bash
 python emotion_leucocyte_pipeline.py
