@@ -1,7 +1,7 @@
 # Emotion–Leucocyte Pipeline
 
 > **Real-time facial emotion recognition mapped to leucocyte microscopy images.**
-> A psychoneuroimmunology (PNI) demonstration tool built with OpenCV, FER, and MTCNN.
+> A  demonstration tool built with OpenCV, FER, and MTCNN.
 
 ---
 
